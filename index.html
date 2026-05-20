@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETL Pipeline - Cloud Database Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght=400;500;600;700&display=swap');
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            padding: 2rem;
+            line-height: 1.5;
+        }
+        .container { max-width: 1300px; margin: 0 auto; }
+        
+        /* Header Style */
+        .main-header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid #334155;
+            padding: 2rem;
+            border-radius: 16px;
+            margin-bottom: 2rem;
+        }
+        .main-header h1 { font-size: 1.8rem; color: #3b82f6; margin-bottom: 0.5rem; }
+        .main-header p { color: #94a3b8; }
+        .badge { background-color: #10b981; color: #042f1a; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+
+        /* Control Panel */
+        .control-panel {
+            background-color: #1e293b; border: 1px solid #334155;
+            padding: 1.2rem; border-radius: 12px; margin-bottom: 1.5rem;
+            display: flex; gap: 15px; flex-wrap: wrap; align-items: center;
+        }
+        .search-box, .filter-box {
+            background-color: #0f172a; border: 1px solid #475569; color: #f8fafc;
+            padding: 10px 16px; border-radius: 8px; font-size: 0.95rem; outline: none;
+        }
+        .search-box { flex: 1; min-width: 250px; }
+        .search-box:focus, .filter-box:focus { border-color: #3b82f6; }
+
+        /* Table Style */
+        .table-container {
+            background-color: #1e293b; border: 1px solid #334155;
+            border-radius: 12px; overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; }
+        th {
+            background-color: #0f172a; color: #3b82f6; font-weight: 600;
+            padding: 14px 18px; border-bottom: 2px solid #334155; text-transform: uppercase; font-size: 0.8rem;
+        }
+        td { padding: 12px 18px; border-bottom: 1px solid #334155; color: #cbd5e1; }
+        tr:hover td { background-color: #24334d; color: #f8fafc; }
+
+        /* Loading State */
+        .loading-box { padding: 4rem; text-align: center; background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+        .spinner { width: 40px; height: 40px; border: 4px solid rgba(59, 130, 246, 0.1); border-left-color: #3b82f6; border-radius: 50%; margin: 0 auto 1rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="main-header">
+            <h1>🛒 E-Commerce Cloud Database System <span class="badge">Online Real-Time</span></h1>
+            <p>Data Engineering Upgrade Target: Menampilkan data transaksi secara online langsung dari Cloud Google Sheets backend via API Service .</p>
+        </div>
+
+        <div class="control-panel" id="controls" style="display: none;">
+            <input type="text" id="search-input" class="search-box" placeholder="Cari berdasarkan nama produk, ID transaksi, atau kategori...">
+            <select id="city-filter" class="filter-box">
+                <option value="">✨ Semua Kota</option>
+            </select>
+        </div>
+
+        <div id="loader" class="loading-box">
+            <div class="spinner"></div>
+            <div style="color: #94a3b8;">Sedang memproses API & mengambil data dari cloud database...</div>
+        </div>
+
+        <div class="table-container" id="table-wrapper" style="display: none;">
+            <table>
+                <thead id="table-head"></thead>
+                <tbody id="table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 🚨 PASTE KEMBALI URL WEB APP API ANTARA TANDA PETIK DI BAWAH INI
+        const API_URL = "https://script.google.com/macros/s/AKfycbzIBrIbcSwJmPrSfZvgPwxGve1aeSwTfozY8mJaaGANoLb8gVHmKn1EinW651ByuTXp/exec";
+
+        let originalRows = [];
+        let tableHeaders = [];
+
+        async function loadCloudData() {
+            try {
+                const response = await fetch(API_URL);
+                const cloudData = await response.json(); // Mengambil data berbentuk paket objek seluruh sheet
+
+                // 🔍 MENYELARASKAN JALUR: Ambil sheet pertama yang tersedia secara dinamis (apapun nama tab-nya)
+                const firstSheetName = Object.keys(cloudData)[0]; 
+                const targetSheetData = cloudData[firstSheetName];
+
+                if (!targetSheetData || targetSheetData.length === 0) {
+                    document.getElementById('loader').innerHTML = "<div style='color:#94a3b8;'>❌ Database kosong atau sheet tidak ditemukan.</div>";
+                    return;
+                }
+
+                // Pisahkan Header (baris 0) dan Data Konten (baris 1 dst) 
+                tableHeaders = targetSheetData[0];
+                originalRows = targetSheetData.slice(1);
+
+                // Sembunyikan loading, tampilkan interface utama
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('controls').style.display = 'flex';
+                document.getElementById('table-wrapper').style.display = 'block';
+
+                // Jalankan perakitan komponen visual 
+                renderTableHeader(tableHeaders);
+                renderTableBody(originalRows);
+                populateCityFilter(originalRows, tableHeaders);
+
+                // Pasang sistem deteksi input pencarian
+                document.getElementById('search-input').addEventListener('input', applyFilters);
+                document.getElementById('city-filter').addEventListener('change', applyFilters);
+
+            } catch (error) {
+                document.getElementById('loader').innerHTML = `<div style='color:#ef4444;'>❌ Gagal terhubung ke Cloud API: ${error.message}</div>`;
+                console.error(error);
+            }
+        }
+
+        function renderTableHeader(headers) {
+            const headContainer = document.getElementById('table-head');
+            let html = '<tr>';
+            headers.forEach(header => {
+                html += `<th>${header.replace(/_/g, ' ')}</th>`;
+            });
+            html += '</tr>';
+            headContainer.innerHTML = html;
+        }
+
+        function renderTableBody(rows) {
+            const bodyContainer = document.getElementById('table-body');
+            let html = '';
+            
+            if (rows.length === 0) {
+                bodyContainer.innerHTML = `<tr><td colspan="${tableHeaders.length}" style="text-align:center; color:#94a3b8; padding: 2rem;">Tidak ada data yang cocok</td></tr>`;
+                return;
+            }
+
+            rows.forEach(row => {
+                html += '<tr>';
+                row.forEach(cell => {
+                    html += `<td>${cell}</td>`;
+                });
+                html += '</tr>';
+            });
+            bodyContainer.innerHTML = html;
+        }
+
+        function populateCityFilter(rows, headers) {
+            const cityIdx = headers.findIndex(h => String(h).toLowerCase().includes('kota') || String(h).toLowerCase().includes('city'));
+            if (cityIdx === -1) return;
+
+            const cities = new Set();
+            rows.forEach(row => {
+                if (row[cityIdx]) cities.add(String(row[cityIdx]).trim());
+            });
+
+            const filterDropdown = document.getElementById('city-filter');
+            cities.forEach(city => {
+                const option = document.createElement('option');
+                option.value = city;
+                option.textContent = city;
+                filterDropdown.appendChild(option);
+            });
+        }
+
+        function applyFilters() {
+            const keyword = document.getElementById('search-input').value.toLowerCase().trim();
+            const selectedCity = document.getElementById('city-filter').value;
+            
+            const cityIdx = tableHeaders.findIndex(h => String(h).toLowerCase().includes('kota') || String(h).toLowerCase().includes('city'));
+
+            const filteredRows = originalRows.filter(row => {
+                if (selectedCity && cityIdx !== -1 && String(row[cityIdx]).trim() !== selectedCity) {
+                    return false;
+                }
+                if (keyword) {
+                    return row.some(cell => String(cell).toLowerCase().includes(keyword));
+                }
+                return true;
+            });
+
+            renderTableBody(filteredRows);
+        }
+
+        window.addEventListener('DOMContentLoaded', loadCloudData);
+    </script>
+</body>
+</html>
